@@ -23,12 +23,12 @@ A QGIS plugin for generating a structural landscape classification map.
 from builtins import object
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction
-from qgis.core import (
-        QgsProject
-)
+from qgis.core import QgsProject, QgsRasterLayer
+from qgis.analysis import QgsRasterCalculatorEntry, QgsRasterCalculator
 
 from . import resources
 from . import doQscape
+import processing
 
 class qscape(object):
 
@@ -52,11 +52,177 @@ class qscape(object):
     def run(self):
         # create and show configuration dialog
         dlg = doQscape.Dialog(self.iface)
-        dlg.exec_()
+        result = dlg.exec_()
         
         # see if OK pressed
-        if dlg:
+        if result == 1:
             # load input
-            LCMap = QgsProject.instance().mapLayersByName(str(dlg.inRastCombo.currentText()))
-            DEM = QgsProject.instance().mapLayersByName(str(dlg.inDEMCombo.currentText()))
+            LCMap = QgsProject.instance().mapLayersByName(str(dlg.inRastCombo.currentText()))[0]
+            DEM = QgsProject.instance().mapLayersByName(str(dlg.inDEMCombo.currentText()))[0]
             
+            # assign variables
+            massTemp = dlg.massLineEdit.text()
+            MASS_OBJECTS = [None if massTemp == '' else int(i) for i in massTemp.split(',')]
+            [0] + MASS_OBJECTS # mask out background
+            del massTemp
+            VIEW_ELEV = float(dlg.heightDSpinBox.text().replace(',','.'))
+            MAX_DIST = float(dlg.radiusDSpinBox.text().replace(',','.'))
+            HALF_MAX = int(MAX_DIST / 2)
+            MEMORY = int(dlg.memorySpinBox.text())
+            OUTPUT = dlg.outLineEdit.text()
+            
+            ## make initial clip
+            # make global mask
+            OUTMASK = OUTPUT[:-4] + "_LC_Mask.tif"
+            LCEntry = QgsRasterCalculatorEntry()
+            LCEntry.ref = 'mask@1'
+            LCEntry.raster = LCMap
+            LCEntry.bandNumber = 1
+            entry = [LCEntry]
+            
+            LCCalc = QgsRasterCalculator('mask@1 / mask@1',
+                                         OUTMASK, 
+                                         'GTiff',
+                                         LCMap.extent(), LCMap.width(), LCMap.height(),
+                                         entry)
+            LCCalc.processCalculation()
+            del LCEntry, LCCalc, entry
+            #LCMask = QgsProject.instance().mapLayersByName(OUTMASK)
+            
+            # raster vector
+            LCVect = processing.run("gdal:polygonize",
+                                    {'INPUT': OUTMASK,
+                                     'BAND': 1,
+                                     'FIELD': 'DN',
+                                     'EIGHT_CONNECTEDNESS': False,
+                                     'OUTPUT': OUTPUT[:-4] + "_LC_Vect.shp"})
+            
+            LCBuff = processing.run("native:buffer", 
+                                    {'INPUT': LCVect['OUTPUT'],
+                                     'DISTANCE': -HALF_MAX,
+                                     'SEGMENTS': 5,
+                                     'END_CAP_STYLE': 0,
+                                     'JOIN_STYLE': 2,
+                                     'MITER_LIMIT': 2,
+                                     'DISSOLVE': True,
+                                     'OUTPUT': OUTPUT[:-4] + "_LC_Buff.shp"})
+            
+            LCMapClip = processing.run("gdal:cliprasterbymasklayer", 
+                                       {'INPUT': LCMap,
+                                        'MASK': LCBuff['OUTPUT'],
+                                        'NODATA': 0,
+                                        'ALPHA_BAND': False,
+                                        'CROP_TO_CUTLINE': True,
+                                        'KEEP_RESOLUTION': True,
+                                        'DATA_TYPE': 0,
+                                        'OUTPUT': OUTPUT[:-4] + "_LC_Clip.tif"})
+            del OUTMASK, LCVect, LCBuff
+            
+            # define extent and resolution
+            LCMapClipObj = QgsRasterLayer(LCMapClip['OUTPUT'])
+            extent = LCMapClipObj.extent()
+            xmin = int(extent.xMinimum())
+            xmax = int(extent.xMaximum())
+            ymin = int(extent.yMinimum())
+            ymax = int(extent.yMaximum())
+            res = int(LCMap.rasterUnitsPerPixelX())
+
+            # convert clip to numpy
+            LCnp = dlg.rst(LCMapClip['OUTPUT'])
+        
+            # initialise output metrics
+            outLib = {'outSize': [],
+                   'outShape': [],
+                   'outHetero': [],
+                   'outComplex': []}
+            
+            # check which measures
+            SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID = dlg.checkMeasures()
+           
+            '''
+            # main loop
+            dlg.noLag(ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
+                      MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap,
+                      SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT)
+            '''
+            dlg.withLag(extent, ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
+              MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap, LCMapClipObj,
+              SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT)
+            
+            '''
+            # numpy counters
+            LCnpY = -1
+            # main loop
+            for i in range(ymax - HALF_MAX, ymin + HALF_MAX, -res):
+                LCnpY += 1
+                LCnpX = -1
+                # append new row
+                for name, out in outLib.items(): 
+                    out.append([])                
+                for j in range(xmin + HALF_MAX, xmax - HALF_MAX, res):
+                    LCnpX += 1
+                    if LCnp[LCnpY,LCnpX] not in MASS_OBJECTS:
+                        # calc viewshed
+                        QVS = processing.run("grass7:r.viewshed", 
+                                            {'input': DEM,
+                                             'coordinates': "{0}, {1}".format(j, i),
+                                             'observer_elevation': VIEW_ELEV,
+                                             'max_distance': MAX_DIST,
+                                             'memory': MEMORY,
+                                             '-c': False,
+                                             '-r': False,
+                                             '-b': True,
+                                             '-e': True,
+                                             'GRASS_REGION_PARAMETER': "{0}, {1}, {2}, {3}".format(j - HALF_MAX,
+                                                                        j + HALF_MAX,
+                                                                        i - HALF_MAX,
+                                                                        i + HALF_MAX),
+                                             'GRASS_REGION_CELLSIZE_PARAMETER': 0,
+                                             'output': "C:/Users/Strudel/Documents/TestRoom/VS.tif"})
+                
+                        # clip LC to Viewshed extent
+                        QLC = processing.run("gdal:cliprasterbyextent",
+                                            {'INPUT': LCMap,
+                                             'PROJWIN': "{0}, {1}, {2}, {3}".format(j - HALF_MAX,
+                                                         j + HALF_MAX,
+                                                         i - HALF_MAX,
+                                                         i + HALF_MAX),
+                                             'DATA_TYPE': 0,
+                                             'OUTPUT': "C:/Users/Strudel/Documents/TestRoom/LC.tif"})
+                        
+                        # convert to numpy array
+                        LC = dlg.rst(QLC['OUTPUT'])
+                        VS = dlg.rst(QVS['output'])                        
+                        del QVS, QLC
+                        
+                        LC *= VS
+                        # setup spatial calculator and append metrics
+                        spatcalc = scapeMetrics.SpatialCalculator(VS, LC)
+                        outLib['outSize'][LCnpY].append(spatcalc.calcSize(SIZE_ID))
+                        outLib['outShape'][LCnpY].append(spatcalc.calcShape(SHAPE_ID))
+                        outLib['outHetero'][LCnpY].append(spatcalc.calcHetero(HETERO_ID))
+                        outLib['outComplex'][LCnpY].append(spatcalc.calcComplex(COMPLEX_ID))
+                        del spatcalc, VS, LC
+                    else:
+                        outLib['outSize'][LCnpY].append(-999)
+                        outLib['outShape'][LCnpY].append(-999)
+                        outLib['outHetero'][LCnpY].append(-999)
+                        outLib['outComplex'][LCnpY].append(-999)
+                        
+            # export
+            with open(OUTPUT[:-4] + "_Size.csv", "w+") as outfile:
+                csvWriter = csv.writer(outfile, delimiter = ',')
+                csvWriter.writerows(outLib['outSize'])
+            
+            with open(OUTPUT[:-4] + "_Shape.csv", "w+") as outfile:
+                csvWriter = csv.writer(outfile, delimiter = ',')
+                csvWriter.writerows(outLib['outShape'])
+            
+            with open(OUTPUT[:-4] + "_Hetero.csv", "w+") as outfile:
+                csvWriter = csv.writer(outfile, delimiter = ',')
+                csvWriter.writerows(outLib['outHetero'])
+            
+            with open(OUTPUT[:-4] + "_Complex.csv", "w+") as outfile:
+                csvWriter = csv.writer(outfile, delimiter = ',')
+                csvWriter.writerows(outLib['outComplex'])
+            '''
