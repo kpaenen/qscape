@@ -28,6 +28,7 @@ from qgis.analysis import QgsRasterCalculatorEntry, QgsRasterCalculator
 
 from . import resources
 from . import doQscape
+import os
 import processing
 
 class qscape(object):
@@ -63,17 +64,18 @@ class qscape(object):
             # assign variables
             massTemp = dlg.massLineEdit.text()
             MASS_OBJECTS = [None if massTemp == '' else int(i) for i in massTemp.split(',')]
-            [0] + MASS_OBJECTS # mask out background
+            MASS_OBJECTS = [0] + MASS_OBJECTS # mask out background
             del massTemp
             VIEW_ELEV = float(dlg.heightDSpinBox.text().replace(',','.'))
             MAX_DIST = float(dlg.radiusDSpinBox.text().replace(',','.'))
             HALF_MAX = int(MAX_DIST / 2)
             MEMORY = int(dlg.memorySpinBox.text())
             OUTPUT = dlg.outLineEdit.text()
+            OUTDIR = OUTPUT.rsplit("/", 1)[0]
             
             ## make initial clip
             # make global mask
-            OUTMASK = OUTPUT[:-4] + "_LC_Mask.tif"
+            OUTMASK = OUTDIR + "/LC_Mask.tif"
             LCEntry = QgsRasterCalculatorEntry()
             LCEntry.ref = 'mask@1'
             LCEntry.raster = LCMap
@@ -95,17 +97,17 @@ class qscape(object):
                                      'BAND': 1,
                                      'FIELD': 'DN',
                                      'EIGHT_CONNECTEDNESS': False,
-                                     'OUTPUT': OUTPUT[:-4] + "_LC_Vect.shp"})
+                                     'OUTPUT': OUTDIR + "/LC_Vect.shp"})
             
             LCBuff = processing.run("native:buffer", 
                                     {'INPUT': LCVect['OUTPUT'],
-                                     'DISTANCE': -HALF_MAX,
+                                     'DISTANCE': -HALF_MAX, #-(halfmax + lag/2)?
                                      'SEGMENTS': 5,
                                      'END_CAP_STYLE': 0,
                                      'JOIN_STYLE': 2,
                                      'MITER_LIMIT': 2,
                                      'DISSOLVE': True,
-                                     'OUTPUT': OUTPUT[:-4] + "_LC_Buff.shp"})
+                                     'OUTPUT': OUTDIR + "/LC_Buff.shp"})
             
             LCMapClip = processing.run("gdal:cliprasterbymasklayer", 
                                        {'INPUT': LCMap,
@@ -115,8 +117,14 @@ class qscape(object):
                                         'CROP_TO_CUTLINE': True,
                                         'KEEP_RESOLUTION': True,
                                         'DATA_TYPE': 0,
-                                        'OUTPUT': OUTPUT[:-4] + "_LC_Clip.tif"})
+                                        'OUTPUT': OUTDIR + "/LC_Clip.tif"})
+            # cleanup        
             del OUTMASK, LCVect, LCBuff
+            '''
+            [os.remove(os.path.join(OUTDIR, f)) for f in os.listdir(OUTDIR) if (f.startswith("LC_Vect")
+                                                                                or f.startswith("LC_Buff")
+                                                                                or f.startswith("LC_Mask"))]
+            '''
             
             # define extent and resolution
             LCMapClipObj = QgsRasterLayer(LCMapClip['OUTPUT'])
@@ -132,22 +140,29 @@ class qscape(object):
         
             # initialise output metrics
             outLib = {'outSize': [],
-                   'outShape': [],
-                   'outHetero': [],
-                   'outComplex': []}
+                      'outShape': [],
+                      'outHetero': [],
+                      'outComplex': []}
             
             # check which measures
-            SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID = dlg.checkMeasures()
-           
-            '''
+            SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID = dlg.checkMeasures()         
+            
             # main loop
-            dlg.noLag(ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
-                      MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap,
-                      SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT)
+            # check if lag
+            if int(dlg.globalSpinBox.text()) == 0:
+                dlg.noLag(ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
+                          MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap,
+                          SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT, OUTDIR)
+            else:
+                dlg.withLag(extent, ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
+                  MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap, LCMapClipObj,
+                  SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT, OUTDIR)
+            
+            # last cleanup
             '''
-            dlg.withLag(extent, ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
-              MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap, LCMapClipObj,
-              SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT)
+            [os.remove(os.path.join(OUTDIR, f)) for f in os.listdir(OUTDIR) if (f.startswith("LC.")
+                                                                                or f.startswith("VS."))]
+            '''
             
             '''
             # numpy counters

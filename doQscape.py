@@ -40,9 +40,6 @@ from . import scapeMetrics
 Ui_Dialog = uic.loadUiType(os.path.join(os.path.dirname(__file__), 'qscapeUi.ui'))[0]
 
 class Dialog(QDialog, Ui_Dialog):
-        
-    #TODO add items
-
     def __init__(self, iface):
         QDialog.__init__(self)
         self.iface = iface
@@ -90,10 +87,9 @@ class Dialog(QDialog, Ui_Dialog):
         # Openness - size
         if self.areaRadioBut.isChecked():
             SIZE_ID = 1
-        else: SIZE_ID = 2
-#            elif dlg.coreRadioBut.isChecked():
-#                SIZE_ID = 2
-#            else: SIZE_ID = 3
+        elif self.varRadioBut.isChecked():
+            SIZE_ID = 2
+        else: SIZE_ID = 3
         # Openness - shape
         if self.ratioRadioBut.isChecked():
             SHAPE_ID = 1
@@ -113,7 +109,7 @@ class Dialog(QDialog, Ui_Dialog):
         return SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID
     
     def getViewClip(self, i, j, DEM, VIEW_ELEV, 
-                    MAX_DIST, MEMORY, HALF_MAX, LCMap):
+                    MAX_DIST, MEMORY, HALF_MAX, LCMap, OUTDIR):
         # calc viewshed
         QVS = processing.run("grass7:r.viewshed", 
                             {'input': DEM,
@@ -130,7 +126,7 @@ class Dialog(QDialog, Ui_Dialog):
                                                         i - HALF_MAX,
                                                         i + HALF_MAX),
                              'GRASS_REGION_CELLSIZE_PARAMETER': 0,
-                             'output': "C:/Users/Strudel/Documents/TestRoom/VS.tif"})
+                             'output': OUTDIR + "/VS.tif"})
 
         # clip LC to Viewshed extent
         QLC = processing.run("gdal:cliprasterbyextent",
@@ -140,12 +136,12 @@ class Dialog(QDialog, Ui_Dialog):
                                          i - HALF_MAX,
                                          i + HALF_MAX),
                              'DATA_TYPE': 0,
-                             'OUTPUT': "C:/Users/Strudel/Documents/TestRoom/LC.tif"})
+                             'OUTPUT': OUTDIR + "/LC.tif"})
         return QVS, QLC
     
     def noLag(self, ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
               MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap,
-              SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT):
+              SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT, OUTDIR):
         '''
         This is the main loop used when no lag is given.
         Every pixel will be queried.
@@ -163,11 +159,12 @@ class Dialog(QDialog, Ui_Dialog):
                 LCnpX += 1
                 if LCnp[LCnpY,LCnpX] not in MASS_OBJECTS:
                     # calc viewshed and clip
-                    QVS, QLC = self.getViewClip(i, j, DEM, VIEW_ELEV, MAX_DIST, MEMORY, HALF_MAX, LCMap)
+                    QVS, QLC = self.getViewClip(i, j, DEM, VIEW_ELEV, MAX_DIST, MEMORY, HALF_MAX, LCMap, OUTDIR)
                     
                     # convert to numpy array
                     LC = self.rst(QLC['OUTPUT'])
-                    VS = self.rst(QVS['output'])                        
+                    VS = self.rst(QVS['output'])
+                    LC[LC == 255], VS[VS == 255] = 0, 0
                     del QVS, QLC
                     
                     LC *= VS
@@ -200,17 +197,22 @@ class Dialog(QDialog, Ui_Dialog):
         with open(OUTPUT[:-4] + "_Complex.csv", "w+") as outfile:
             csvWriter = csv.writer(outfile, delimiter = ',')
             csvWriter.writerows(outLib['outComplex'])
-
+    
+    def writeLagOutputFalse(self, outLib):
+        outLib['outSize'].append(-999)
+        outLib['outShape'].append(-999)
+        outLib['outHetero'].append(-999)
+        outLib['outComplex'].append(-999)
+    
     def withLag(self, extent, ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
               MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap, LCMapClipObj,
-              SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT):
+              SIZE_ID, SHAPE_ID, HETERO_ID, COMPLEX_ID, OUTPUT, OUTDIR):
         '''
         This is the main loop used when a lag is given.
         A regular grid will be made and each point location will be queried.
         '''
         # create grid
         sr = LCMap.crs().authid()
-        #QMessageBox.information(None, "DEBUG:", str(int(self.globalSpinBox.text())))
         GRID = processing.run("qgis:regularpoints", 
                               {'CRS': sr,
                                'EXTENT': "{0}, {1}, {2}, {3}".format(
@@ -222,40 +224,97 @@ class Dialog(QDialog, Ui_Dialog):
                                'OUTPUT': OUTPUT[:-4] + "_GRID.shp"})
         
         GRID = QgsVectorLayer(GRID['OUTPUT'])
+        # create zonal polygon and zonal statistic
+        GRIDZone = processing.run("native:buffer", 
+                                  {'INPUT': GRID,
+                                   'DISTANCE': int(self.globalSpinBox.text())/2,
+                                   'SEGMENTS': 5,
+                                   'END_CAP_STYLE': 2,
+                                   'JOIN_STYLE': 2,
+                                   'MITER_LIMIT': 2,
+                                   'DISSOLVE': False,
+                                   'OUTPUT': OUTDIR + "/GRIDZone.shp"})
+    
+        GRIDHisto = processing.run("native:zonalhistogram",
+                                   {'INPUT_RASTER': LCMap,
+                                    'RASTER_BAND': 1,
+                                    'INPUT_VECTOR': GRIDZone['OUTPUT'],
+                                    'COLUMN_PREFIX': "HISTO_",
+                                    'OUTPUT': OUTDIR + "/GRIDHisto.shp"})
+        GRIDHisto = QgsVectorLayer(GRIDHisto['OUTPUT']);
+        # cleanup
+        '''
+        [os.remove(os.path.join(OUTDIR, f)) for f in os.listdir(OUTDIR) if (f.startswith("GRIDZone"))]
+        '''
+        
         # make ranges
         xpt, ypt = [], []
         for pt in GRID.getFeatures():
             xpt.append(pt.geometry().asPoint().x())
             ypt.append(pt.geometry().asPoint().y())
         del GRID
+        HALF_GRID_PIXELS = ((int(self.globalSpinBox.text())*int(self.globalSpinBox.text())) / (res*res)) * 0.5
+        FIELD_NAMES = [field.name() for field in GRIDHisto.fields()]
         
         for i in range(len(xpt)):
-#            for name, out in outLib.items(): 
-#                out.append([])
+            # get point data
             ptData = LCMapClipObj.dataProvider().identify(QgsPointXY(xpt[i], ypt[i]), QgsRaster.IdentifyFormatValue).results()[1]
-            # beware: lazy evaluation! int(None) = error
-            if ptData != None and int(ptData) not in MASS_OBJECTS:
-                # calc viewshed and clip
-                QVS, QLC = self.getViewClip(ypt[i], xpt[i], DEM, VIEW_ELEV, MAX_DIST, MEMORY, HALF_MAX, LCMap)
+            if ptData == None:
+                self.writeLagOutputFalse(outLib)
+                continue
+            
+            # if more than half of lag zone is mass object, skip
+            conductSum = 0
+            for c in MASS_OBJECTS[1:]: 
+                if str(c) in FIELD_NAMES:
+                    conductSum += GRIDHisto.getFeature(i)[str(c)]
+            if conductSum > HALF_GRID_PIXELS:
+                self.writeLagOutputFalse(outLib)
+                continue            
                 
-                # convert to numpy array
-                LC = self.rst(QLC['OUTPUT'])
-                VS = self.rst(QVS['output'])                        
-                del QVS, QLC
+            # search algorithm to half of lag if viewpoint is mass object
+            if int(ptData) in MASS_OBJECTS[1:]:
+                FOUND = False
+                # atm only in 1 horizontal dimension
+                # future in 2D orthagonal/circular?
+                for s in range(res, int((int(self.globalSpinBox.text())/2)), res):
+                    ptDataAltR = LCMapClipObj.dataProvider().identify(
+                            QgsPointXY(xpt[i]+s, ypt[i]), 
+                            QgsRaster.IdentifyFormatValue).results()[1]
+                    ptDataAltL = LCMapClipObj.dataProvider().identify(
+                            QgsPointXY(xpt[i]-s, ypt[i]), 
+                            QgsRaster.IdentifyFormatValue).results()[1]
+                    #PRINT
+                    
+                    if ptDataAltR != None and int(ptDataAltR) not in MASS_OBJECTS:
+                        xpt[i] += s
+                        FOUND = True
+                        break
+                    elif ptDataAltL != None and int(ptDataAltL) not in MASS_OBJECTS:
+                        xpt[i] -= s
+                        FOUND = True
+                        break       
+                if not FOUND:
+                    self.writeLagOutputFalse(outLib)
+                    continue
                 
-                LC *= VS
-                # setup spatial calculator and append metrics
-                spatcalc = scapeMetrics.SpatialCalculator(VS, LC)
-                outLib['outSize'].append(spatcalc.calcSize(SIZE_ID))
-                outLib['outShape'].append(spatcalc.calcShape(SHAPE_ID))
-                outLib['outHetero'].append(spatcalc.calcHetero(HETERO_ID))
-                outLib['outComplex'].append(spatcalc.calcComplex(COMPLEX_ID))
-                del spatcalc, VS, LC
-            else:
-                outLib['outSize'].append(-999)
-                outLib['outShape'].append(-999)
-                outLib['outHetero'].append(-999)
-                outLib['outComplex'].append(-999)
+            # calc viewshed and clip
+            QVS, QLC = self.getViewClip(ypt[i], xpt[i], DEM, VIEW_ELEV, MAX_DIST, MEMORY, HALF_MAX, LCMap, OUTDIR)
+            
+            # convert to numpy array
+            LC = self.rst(QLC['OUTPUT'])
+            VS = self.rst(QVS['output'])
+            LC[LC == 255], VS[VS == 255] = 0, 0                        
+            del QVS, QLC
+            
+            LC *= VS
+            # setup spatial calculator and append metrics
+            spatcalc = scapeMetrics.SpatialCalculator(VS, LC)
+            outLib['outSize'].append(spatcalc.calcSize(SIZE_ID))
+            outLib['outShape'].append(spatcalc.calcShape(SHAPE_ID))
+            outLib['outHetero'].append(spatcalc.calcHetero(HETERO_ID))
+            outLib['outComplex'].append(spatcalc.calcComplex(COMPLEX_ID))
+            del spatcalc, VS, LC
                     
         # export
         with open(OUTPUT[:-4] + "_Size.csv", "w+") as outfile:

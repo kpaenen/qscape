@@ -28,17 +28,21 @@ class SpatialCalculator(object):
     def __init__(self, ViewshedBinary, ViewshedClasses):
         self.vsBool = ViewshedBinary
         self.vsClasses = ViewshedClasses
-        self.area = np.sum(self.vsBool)
+        self.area = np.sum(self.vsBool[self.vsBool == 1]) # safety measure
         self.rows = len(self.vsBool)
-        self.cols = len(self.vsBool[0])   
+        self.cols = len(self.vsBool[0])
+        self.circle = math.pi*(self.rows/2)**2
     
     # Openness - input is boolean viewshed array
     ## Size
     def calcSize(self, x):
         # Caller function to handle radiobutton
         if x == 1: return self.area
-        elif x == 2: return self.calcCore()
-        else: return self.calcCoreIndex()
+        elif x == 2: return self.calcVisibleAreaRatio()
+        else: return self.calcCore()
+    
+    def calcVisibleAreaRatio(self):
+        return self.area/self.circle
     
     def calcCore(self):
         # Generates largest possible square from centre location
@@ -58,33 +62,13 @@ class SpatialCalculator(object):
                     count += 1
                 else: contin = False
             return core*core
-
-    ''' # DEPRECATED
-    def calcCore(self):
-        # initiate
-        current_col = [0]*(self.rows + 1)
-        prev_col = [0]*(self.rows + 1)
-        core = 0
         
-        # find max core length possible per cell
-        for j in range(self.cols-1, -1, -1):
-            prev_col = current_col
-            current_col = [0]*(self.rows + 1)
-        
-            for i in range(self.rows-1, -1, -1):
-                if self.vsBool[i][j] == 1:
-                    current_col[i] = min(current_col[i+1], prev_col[i], prev_col[i+1]) + 1
-                    if current_col[i] > core:
-                        core = current_col[i]
-                else:
-                    current_col[i] = 0
-        return core*core
-    '''
-    
+    ''' # not used anymore - but useful
     def calcCoreIndex(self):
         core = self.calcCore()
         core *= core
         return core / self.area
+    '''
     
     ## Shape
     def calcShape(self, x):

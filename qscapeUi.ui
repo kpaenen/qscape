@@ -357,6 +357,14 @@
                            </widget>
                           </item>
                           <item>
+                           <widget class="QRadioButton" name="varRadioBut">
+                            <property name="text">
+                             <string>Visible Area
+Ratio</string>
+                            </property>
+                           </widget>
+                          </item>
+                          <item>
                            <widget class="QRadioButton" name="coreRadioBut">
                             <property name="text">
                              <string>Core Area</string>
