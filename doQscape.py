@@ -121,20 +121,20 @@ class Dialog(QDialog, Ui_Dialog):
                              '-r': False,
                              '-b': True,
                              '-e': True,
-                             'GRASS_REGION_PARAMETER': "{0}, {1}, {2}, {3}".format(j - HALF_MAX,
-                                                        j + HALF_MAX,
-                                                        i - HALF_MAX,
-                                                        i + HALF_MAX),
+                             'GRASS_REGION_PARAMETER': "{0}, {1}, {2}, {3}".format(j - MAX_DIST,
+                                                        j + MAX_DIST,
+                                                        i - MAX_DIST,
+                                                        i + MAX_DIST),
                              'GRASS_REGION_CELLSIZE_PARAMETER': 0,
                              'output': OUTDIR + "/VS.tif"})
 
         # clip LC to Viewshed extent
         QLC = processing.run("gdal:cliprasterbyextent",
                             {'INPUT': LCMap,
-                             'PROJWIN': "{0}, {1}, {2}, {3}".format(j - HALF_MAX,
-                                         j + HALF_MAX,
-                                         i - HALF_MAX,
-                                         i + HALF_MAX),
+                             'PROJWIN': "{0}, {1}, {2}, {3}".format(j - MAX_DIST,
+                                         j + MAX_DIST,
+                                         i - MAX_DIST,
+                                         i + MAX_DIST),
                              'DATA_TYPE': 0,
                              'OUTPUT': OUTDIR + "/LC.tif"})
         return QVS, QLC
@@ -266,8 +266,8 @@ class Dialog(QDialog, Ui_Dialog):
             # if more than half of lag zone is mass object, skip
             conductSum = 0
             for c in MASS_OBJECTS[1:]: 
-                if str(c) in FIELD_NAMES:
-                    conductSum += GRIDHisto.getFeature(i)[str(c)]
+                if ("HISTO_" + str(c)) in FIELD_NAMES:
+                    conductSum += GRIDHisto.getFeature(i)["HISTO_" + str(c)]
             if conductSum > HALF_GRID_PIXELS:
                 self.writeLagOutputFalse(outLib)
                 continue            

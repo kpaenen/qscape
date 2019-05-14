@@ -82,7 +82,7 @@ class qscape(object):
             LCEntry.bandNumber = 1
             entry = [LCEntry]
             
-            LCCalc = QgsRasterCalculator('mask@1 / mask@1',
+            LCCalc = QgsRasterCalculator('mask@1 > 0',
                                          OUTMASK, 
                                          'GTiff',
                                          LCMap.extent(), LCMap.width(), LCMap.height(),
@@ -101,7 +101,7 @@ class qscape(object):
             
             LCBuff = processing.run("native:buffer", 
                                     {'INPUT': LCVect['OUTPUT'],
-                                     'DISTANCE': -HALF_MAX, #-(halfmax + lag/2)?
+                                     'DISTANCE': -MAX_DIST, #-(halfmax + lag/2)?
                                      'SEGMENTS': 5,
                                      'END_CAP_STYLE': 0,
                                      'JOIN_STYLE': 2,
@@ -120,11 +120,10 @@ class qscape(object):
                                         'OUTPUT': OUTDIR + "/LC_Clip.tif"})
             # cleanup        
             del OUTMASK, LCVect, LCBuff
-            '''
             [os.remove(os.path.join(OUTDIR, f)) for f in os.listdir(OUTDIR) if (f.startswith("LC_Vect")
                                                                                 or f.startswith("LC_Buff")
                                                                                 or f.startswith("LC_Mask"))]
-            '''
+
             
             # define extent and resolution
             LCMapClipObj = QgsRasterLayer(LCMapClip['OUTPUT'])

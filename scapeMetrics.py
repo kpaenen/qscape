@@ -22,7 +22,13 @@ A QGIS plugin for generating a structural landscape classification map.
 
 import math
 import numpy as np
-import numpy_indexed as npi
+try:
+    import numpy_indexed as npi
+except ModuleNotFoundError:
+    import subprocess
+    subprocess.call(["python3", '-m', 'pip', 'install', 'numpy-indexed'])
+    import numpy_indexed as npi
+    
 
 class SpatialCalculator(object):
     def __init__(self, ViewshedBinary, ViewshedClasses):
