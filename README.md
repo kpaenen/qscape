@@ -18,7 +18,7 @@ Copy forked repository in:
   > C:\Users\<User>\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\qscape
 
 # Enabling QScape
-- Start up 'QGIS Desktop with GRASS'.
+- Start 'QGIS Desktop with GRASS'.
 - In the toolbar choose 'Plugins>Install plugins', find QScape and enable it. It should now appear in the toolbar.
 
 # Starting QScape
