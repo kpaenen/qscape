@@ -203,6 +203,26 @@ class Dialog(QDialog, Ui_Dialog):
         outLib['outShape'].append(-999)
         outLib['outHetero'].append(-999)
         outLib['outComplex'].append(-999)
+        
+    '''TEMP'''
+    def tempWrite(self, part, OUTPUT, outLib):
+        # temporary export
+        with open(OUTPUT[:-4] + "_Size_{0}.csv".format(part), "w+") as outfile:
+            csvWriter = csv.writer(outfile, delimiter = ',')
+            csvWriter.writerow(outLib['outSize'])
+            
+        with open(OUTPUT[:-4] + "_Shape_{0}.csv".format(part), "w+") as outfile:
+            csvWriter = csv.writer(outfile, delimiter = ',')
+            csvWriter.writerow(outLib['outShape'])
+        
+        with open(OUTPUT[:-4] + "_Hetero_{0}.csv".format(part), "w+") as outfile:
+            csvWriter = csv.writer(outfile, delimiter = ',')
+            csvWriter.writerow(outLib['outHetero'])
+        
+        with open(OUTPUT[:-4] + "_Complex_{0}.csv".format(part), "w+") as outfile:
+            csvWriter = csv.writer(outfile, delimiter = ',')
+            csvWriter.writerow(outLib['outComplex'])
+
     
     def withLag(self, extent, ymax, ymin, xmax, xmin, HALF_MAX, res, outLib, LCnp,
               MASS_OBJECTS, DEM, VIEW_ELEV, MAX_DIST, MEMORY, LCMap, LCMapClipObj,
@@ -256,11 +276,24 @@ class Dialog(QDialog, Ui_Dialog):
         HALF_GRID_PIXELS = ((int(self.globalSpinBox.text())*int(self.globalSpinBox.text())) / (res*res)) * 0.5
         FIELD_NAMES = [field.name() for field in GRIDHisto.fields()]
         
-        for i in range(len(xpt)):
+        ## iters, part = 0, 5
+        for i in range(len(xpt)): ##milestone range(900000, len(xpt))
+            # #iters += 1
             # get point data
             ptData = LCMapClipObj.dataProvider().identify(QgsPointXY(xpt[i], ypt[i]), QgsRaster.IdentifyFormatValue).results()[1]
             if ptData == None:
                 self.writeLagOutputFalse(outLib)
+                """
+                '''TEMP'''
+                if iters == 100000:
+                    iters = 0
+                    part += 1
+                    self.tempWrite(part, OUTPUT, outLib)
+                    outLib = {'outSize': [],
+                      'outShape': [],
+                      'outHetero': [],
+                      'outComplex': []}
+                """
                 continue
             
             # if more than half of lag zone is mass object, skip
@@ -270,6 +303,17 @@ class Dialog(QDialog, Ui_Dialog):
                     conductSum += GRIDHisto.getFeature(i)["HISTO_" + str(c)]
             if conductSum > HALF_GRID_PIXELS:
                 self.writeLagOutputFalse(outLib)
+                """
+                '''TEMP'''
+                if iters == 100000:
+                    iters = 0
+                    part += 1
+                    self.tempWrite(part, OUTPUT, outLib)
+                    outLib = {'outSize': [],
+                      'outShape': [],
+                      'outHetero': [],
+                      'outComplex': []}
+                """
                 continue            
                 
             # search algorithm to half of lag if viewpoint is mass object
@@ -296,6 +340,17 @@ class Dialog(QDialog, Ui_Dialog):
                         break       
                 if not FOUND:
                     self.writeLagOutputFalse(outLib)
+                    """
+                    '''TEMP'''
+                    if iters == 100000:
+                        iters = 0
+                        part += 1
+                        self.tempWrite(part, OUTPUT, outLib)
+                        outLib = {'outSize': [],
+                          'outShape': [],
+                          'outHetero': [],
+                          'outComplex': []}
+                    """
                     continue
                 
             # calc viewshed and clip
@@ -315,21 +370,34 @@ class Dialog(QDialog, Ui_Dialog):
             outLib['outHetero'].append(spatcalc.calcHetero(HETERO_ID))
             outLib['outComplex'].append(spatcalc.calcComplex(COMPLEX_ID))
             del spatcalc, VS, LC
+            
+            """
+            if iters == 100000:
+                iters = 0
+                part += 1
+                # temporary export
+                self.tempWrite(part, OUTPUT, outLib)
+                outLib = {'outSize': [],
+                  'outShape': [],
+                  'outHetero': [],
+                  'outComplex': []}
+            """
                     
         # export
-        with open(OUTPUT[:-4] + "_Size.csv", "w+") as outfile:
+        part += 1
+        with open(OUTPUT[:-4] + "_Size_{0}.csv".format(part), "w+") as outfile:
             csvWriter = csv.writer(outfile, delimiter = ',')
             csvWriter.writerow(outLib['outSize'])
             
-        with open(OUTPUT[:-4] + "_Shape.csv", "w+") as outfile:
+        with open(OUTPUT[:-4] + "_Shape_{0}.csv".format(part), "w+") as outfile:
             csvWriter = csv.writer(outfile, delimiter = ',')
             csvWriter.writerow(outLib['outShape'])
         
-        with open(OUTPUT[:-4] + "_Hetero.csv", "w+") as outfile:
+        with open(OUTPUT[:-4] + "_Hetero_{0}.csv".format(part), "w+") as outfile:
             csvWriter = csv.writer(outfile, delimiter = ',')
             csvWriter.writerow(outLib['outHetero'])
         
-        with open(OUTPUT[:-4] + "_Complex.csv", "w+") as outfile:
+        with open(OUTPUT[:-4] + "_Complex_{0}.csv".format(part), "w+") as outfile:
             csvWriter = csv.writer(outfile, delimiter = ',')
             csvWriter.writerow(outLib['outComplex'])
         
