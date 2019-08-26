@@ -15,7 +15,7 @@ The safest choice is to:
 
 # Installation
 Copy forked repository in:
-  > C:\Users\<User>\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\qscape
+  > C:\Users\\<User>\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\qscape
 
 # Enabling QScape
 - Start 'QGIS Desktop with GRASS'.
